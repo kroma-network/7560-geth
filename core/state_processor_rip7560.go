@@ -30,6 +30,7 @@ type ValidationPhaseResult struct {
 	PaymasterContext    []byte
 	PreCharge           *uint256.Int
 	EffectiveGasPrice   *uint256.Int
+	NonceManagerUsedGas uint64
 	DeploymentUsedGas   uint64
 	ValidationUsedGas   uint64
 	PmValidationUsedGas uint64
@@ -136,10 +137,14 @@ func refundPayer(vpr *ValidationPhaseResult, state vm.StateDB, gasUsed uint64) {
 	state.AddBalance(*chargeFrom, refund, tracing.BalanceIncreaseGasReturn)
 }
 
-// precheck nonce of transaction.
+// CheckNonceRip7560 pre-checks nonce of RIP-7560 transaction that don't rely on RIP-7712 two-dimensional nonces.
 // (standard preCheck function check both nonce and no-code of account)
+// Make sure this transaction's nonce is correct.
 func CheckNonceRip7560(tx *types.Rip7560AccountAbstractionTx, st *state.StateDB) error {
-	// Make sure this transaction's nonce is correct.
+	// RIP-7712 two-dimensional nonce is checked on-chain
+	if tx.IsRip7712Nonce() {
+		return nil
+	}
 	stNonce := st.GetNonce(*tx.Sender)
 	if msgNonce := tx.Nonce; stNonce < msgNonce {
 		return fmt.Errorf("%w: address %v, tx: %d state: %d", ErrNonceTooHigh,
@@ -197,6 +202,24 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 		evm.Config.Tracer.OnTxStart(evm.GetVMContext(), tx, common.Address{})
 	}
 
+	/*** Nonce Manager Frame ***/
+	var nonceManagerUsedGas uint64
+	if aatx.IsRip7712Nonce() {
+		if chainConfig.IsRIP7712(header.Number) {
+			nonceManagerMessage := prepareNonceManagerMessage(tx)
+			resultNonceManager, err := ApplyMessage(evm, nonceManagerMessage, gp)
+			if err != nil {
+				return nil, fmt.Errorf("RIP-7712 nonce validation failed: %w", err)
+			}
+			if resultNonceManager.Failed() {
+				return nil, fmt.Errorf("RIP-7712 nonce validation failed: %w", resultNonceManager.Err)
+			}
+			nonceManagerUsedGas = resultNonceManager.UsedGas
+		} else {
+			return nil, fmt.Errorf("RIP-7712 nonce is disabled")
+		}
+	}
+
 	/*** Deployer Frame ***/
 	deployerMsg := prepareDeployerMessage(tx, chainConfig)
 	var deploymentUsedGas uint64
@@ -225,7 +248,9 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 		if statedb.GetCodeSize(*sender) == 0 {
 			return nil, fmt.Errorf("account is not deployed and no factory is specified, account:%s", sender.String())
 		}
-		statedb.SetNonce(*sender, statedb.GetNonce(*sender)+1)
+		if !aatx.IsRip7712Nonce() {
+			statedb.SetNonce(*sender, statedb.GetNonce(*sender)+1)
+		}
 	}
 
 	/*** Account Validation Frame ***/
@@ -275,6 +300,7 @@ func ApplyRip7560ValidationPhases(chainConfig *params.ChainConfig, bc ChainConte
 	vpr.EffectiveGasPrice = gasPriceUint256
 	vpr.PaymasterContext = paymasterContext
 	vpr.DeploymentUsedGas = deploymentUsedGas
+	vpr.NonceManagerUsedGas = nonceManagerUsedGas
 	vpr.ValidationUsedGas = resultAccountValidation.UsedGas
 	vpr.PmValidationUsedGas = pmValidationUsedGas
 	vpr.SenderValidAfter = aad.ValidAfter.Uint64()
@@ -361,6 +387,7 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 
 	gasUsed :=
 		vpr.ValidationUsedGas +
+			vpr.NonceManagerUsedGas +
 			vpr.DeploymentUsedGas +
 			vpr.PmValidationUsedGas +
 			executionResult.UsedGas
