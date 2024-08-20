@@ -76,16 +76,17 @@ type TransactionArgs struct {
 	blobSidecarAllowed bool
 
 	// Introduced by RIP-7560 Transaction
-	Sender        *common.Address `json:"sender"`
-	Signature     *hexutil.Bytes
-	Paymaster     *common.Address `json:"paymaster,omitempty"`
-	PaymasterData *hexutil.Bytes  `json:"paymasterData,omitempty"`
-	Deployer      *common.Address `json:"deployer,omitempty"`
-	DeployerData  *hexutil.Bytes  `json:"deployerData,omitempty"`
-	BuilderFee    *hexutil.Big
-	ValidationGas *hexutil.Uint64 `json:"verificationGasLimit"`
-	PaymasterGas  *hexutil.Uint64 `json:"paymasterVerificationGasLimit"`
-	PostOpGas     *hexutil.Uint64 `json:"paymasterPostOpGasLimit"`
+	Sender            *common.Address `json:"sender"`
+	AuthorizationData *hexutil.Bytes  `json:"authorizationData,omitempty"`
+	ExecutionData     *hexutil.Bytes  `json:"executionData,omitempty"`
+	Paymaster         *common.Address `json:"paymaster,omitempty"`
+	PaymasterData     *hexutil.Bytes  `json:"paymasterData,omitempty"`
+	Deployer          *common.Address `json:"deployer,omitempty"`
+	DeployerData      *hexutil.Bytes  `json:"deployerData,omitempty"`
+	BuilderFee        *hexutil.Big    `json:"builderFee,omitempty"`
+	ValidationGas     *hexutil.Uint64 `json:"verificationGasLimit"`
+	PaymasterGas      *hexutil.Uint64 `json:"paymasterVerificationGasLimit"`
+	PostOpGas         *hexutil.Uint64 `json:"paymasterPostOpGasLimit"`
 
 	// Introduced by RIP-7712 Transaction
 	NonceKey *hexutil.Big `json:"nonceKey,omitempty"`
@@ -522,19 +523,19 @@ func (args *TransactionArgs) ToTransaction() *types.Transaction {
 			al = *args.AccessList
 		}
 		aatx := types.Rip7560AccountAbstractionTx{
-			To:         &common.Address{},
-			ChainID:    (*big.Int)(args.ChainID),
-			Gas:        uint64(*args.Gas),
-			NonceKey:   (*big.Int)(args.NonceKey),
-			Nonce:      uint64(*args.Nonce),
-			GasFeeCap:  (*big.Int)(args.MaxFeePerGas),
-			GasTipCap:  (*big.Int)(args.MaxPriorityFeePerGas),
-			Value:      (*big.Int)(args.Value),
-			Data:       args.data(),
-			AccessList: al,
+			//To:            &common.Address{},
+			ChainID:   (*big.Int)(args.ChainID),
+			Gas:       uint64(*args.Gas),
+			NonceKey:  (*big.Int)(args.NonceKey),
+			Nonce:     uint64(*args.Nonce),
+			GasFeeCap: (*big.Int)(args.MaxFeePerGas),
+			GasTipCap: (*big.Int)(args.MaxPriorityFeePerGas),
+			//Value:         (*big.Int)(args.Value),
+			ExecutionData: *args.ExecutionData,
+			AccessList:    al,
 			// RIP-7560 parameters
 			Sender:                      args.Sender,
-			Signature:                   *args.Signature,
+			AuthorizationData:           *args.AuthorizationData,
 			Paymaster:                   args.Paymaster,
 			PaymasterData:               *args.PaymasterData,
 			Deployer:                    args.Deployer,
@@ -544,6 +545,15 @@ func (args *TransactionArgs) ToTransaction() *types.Transaction {
 			PaymasterValidationGasLimit: toUint64(args.PaymasterGas),
 			PostOpGas:                   toUint64(args.PostOpGas),
 		}
+
+		zeroAddress := common.Address{}
+		if aatx.Paymaster != nil && zeroAddress.Cmp(*aatx.Paymaster) == 0 {
+			aatx.Paymaster = nil
+		}
+		if aatx.Deployer != nil && zeroAddress.Cmp(*aatx.Deployer) == 0 {
+			aatx.Deployer = nil
+		}
+
 		data = &aatx
 		hash := types.NewTx(data).Hash()
 		log.Error("RIP-7560 transaction created", "sender", aatx.Sender.Hex(), "hash", hash)
