@@ -42,6 +42,13 @@ type ValidationPhaseResult struct {
 	PmValidUntil        uint64
 }
 
+const (
+	ExecutionStatusSuccess                   = uint64(0)
+	ExecutionStatusExecutionFailure          = uint64(1)
+	ExecutionStatusPostOpFailure             = uint64(2)
+	ExecutionStatusExecutionAndPostOpFailure = uint64(3)
+)
+
 // ValidationPhaseError is an API error that encompasses an EVM revert with JSON error
 // code and a binary data blob.
 type ValidationPhaseError struct {
@@ -491,9 +498,11 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	accountExecutionMsg := prepareAccountExecutionMessage(vpr.Tx)
 	beforeExecSnapshotId := statedb.Snapshot()
 	executionResult := CallFrame(st, &AA_ENTRY_POINT, sender, accountExecutionMsg, aatx.Gas)
-	executionStatus := types.ReceiptStatusSuccessful
+	receiptStatus := types.ReceiptStatusSuccessful
+	executionStatus := ExecutionStatusSuccess
 	if executionResult.Failed() {
-		executionStatus = types.ReceiptStatusFailed
+		receiptStatus = types.ReceiptStatusFailed
+		executionStatus = ExecutionStatusExecutionFailure
 	}
 	executionGasPenalty := (aatx.Gas - executionResult.UsedGas) * AA_GAS_PENALTY_PCT / 100
 
@@ -506,21 +515,49 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 		executionGasPenalty
 
 	var postOpGasUsed uint64
+	var paymasterPostOpResult *ExecutionResult
 	if len(vpr.PaymasterContext) != 0 {
-		paymasterPostOpResult := applyPaymasterPostOpFrame(st, aatx, vpr, !executionResult.Failed(), gasUsed)
+		paymasterPostOpResult = applyPaymasterPostOpFrame(st, aatx, vpr, !executionResult.Failed(), gasUsed)
 		postOpGasUsed = paymasterPostOpResult.UsedGas
 		// PostOp failed, reverting execution changes
-		if paymasterPostOpResult.Err != nil {
+		if paymasterPostOpResult.Failed() {
 			statedb.RevertToSnapshot(beforeExecSnapshotId)
-			executionStatus = types.ReceiptStatusFailed
+			receiptStatus = types.ReceiptStatusFailed
+			if executionStatus == ExecutionStatusExecutionFailure {
+				executionStatus = ExecutionStatusExecutionAndPostOpFailure
+			}
+			executionStatus = ExecutionStatusPostOpFailure
 		}
 		postOpGasPenalty := (aatx.PostOpGas - postOpGasUsed) * AA_GAS_PENALTY_PCT / 100
 		gasUsed += postOpGasUsed + postOpGasPenalty
 	}
 
+	err = injectRIP7560TransactionEvent(aatx, executionStatus, header, statedb)
+	if err != nil {
+		return nil, err
+	}
+	if aatx.Deployer != nil {
+		err = injectRIP7560AccountDeployedEvent(aatx, header, statedb)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if executionResult.Failed() {
+		err = injectRIP7560TransactionRevertReasonEvent(aatx, executionResult.ReturnData, header, statedb)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if paymasterPostOpResult != nil && paymasterPostOpResult.Failed() {
+		err = injectRIP7560TransactionPostOpRevertReasonEvent(aatx, paymasterPostOpResult.ReturnData, header, statedb)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	receipt := &types.Receipt{Type: vpr.Tx.Type(), TxHash: vpr.Tx.Hash(), GasUsed: gasUsed, CumulativeGasUsed: gasUsed}
 
-	receipt.Status = executionStatus
+	receipt.Status = receiptStatus
 
 	refundPayer(vpr, statedb, gasUsed)
 
@@ -531,6 +568,86 @@ func ApplyRip7560ExecutionPhase(config *params.ChainConfig, vpr *ValidationPhase
 	receipt.TransactionIndex = uint(vpr.TxIndex)
 	// other fields are filled in DeriveFields (all tx, block fields, and updating CumulativeGasUsed
 	return receipt, nil
+}
+
+func injectRIP7560TransactionEvent(
+	aatx *types.Rip7560AccountAbstractionTx,
+	executionStatus uint64,
+	header *types.Header,
+	statedb *state.StateDB,
+) error {
+	topics, data, err := abiEncodeRIP7560TransactionEvent(aatx, executionStatus)
+	if err != nil {
+		return err
+	}
+	err = injectEvent(topics, data, header.Number.Uint64(), statedb)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func injectRIP7560AccountDeployedEvent(
+	aatx *types.Rip7560AccountAbstractionTx,
+	header *types.Header,
+	statedb *state.StateDB,
+) error {
+	topics, data, err := abiEncodeRIP7560AccountDeployedEvent(aatx)
+	if err != nil {
+		return err
+	}
+	err = injectEvent(topics, data, header.Number.Uint64(), statedb)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func injectRIP7560TransactionRevertReasonEvent(
+	aatx *types.Rip7560AccountAbstractionTx,
+	revertData []byte,
+	header *types.Header,
+	statedb *state.StateDB,
+) error {
+	topics, data, err := abiEncodeRIP7560TransactionRevertReasonEvent(aatx, revertData)
+	if err != nil {
+		return err
+	}
+	err = injectEvent(topics, data, header.Number.Uint64(), statedb)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func injectRIP7560TransactionPostOpRevertReasonEvent(
+	aatx *types.Rip7560AccountAbstractionTx,
+	revertData []byte,
+	header *types.Header,
+	statedb *state.StateDB,
+) error {
+	topics, data, err := abiEncodeRIP7560TransactionPostOpRevertReasonEvent(aatx, revertData)
+	if err != nil {
+		return err
+	}
+	err = injectEvent(topics, data, header.Number.Uint64(), statedb)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func injectEvent(topics []common.Hash, data []byte, blockNumber uint64, statedb *state.StateDB) error {
+	transactionLog := &types.Log{
+		Address: AA_ENTRY_POINT,
+		Topics:  topics,
+		Data:    data,
+		// This is a non-consensus field, but assigned here because
+		// core/state doesn't know the current block number.
+		BlockNumber: blockNumber,
+	}
+	statedb.AddLog(transactionLog)
+	return nil
 }
 
 func prepareAccountValidationMessage(tx *types.Rip7560AccountAbstractionTx, signingHash common.Hash) ([]byte, error) {
