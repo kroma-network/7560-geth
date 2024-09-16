@@ -202,7 +202,12 @@ func handleRip7560Transactions(
 	return validatedTransactions, receipts, validationFailureInfos, allLogs, nil
 }
 
-func BuyGasRip7560Transaction(st *types.Rip7560AccountAbstractionTx, state vm.StateDB, gasPrice *uint256.Int) (uint64, *uint256.Int, error) {
+func BuyGasRip7560Transaction(
+	st *types.Rip7560AccountAbstractionTx,
+	state vm.StateDB,
+	gasPrice *uint256.Int,
+	gp *GasPool,
+) (uint64, *uint256.Int, error) {
 	gasLimit, err := st.TotalGasLimit()
 	if err != nil {
 		return 0, nil, err
@@ -220,6 +225,9 @@ func BuyGasRip7560Transaction(st *types.Rip7560AccountAbstractionTx, state vm.St
 	}
 
 	state.SubBalance(*chargeFrom, preCharge, 0)
+	if err := gp.SubGas(gasLimit); err != nil {
+		return 0, nil, err
+	}
 	return gasLimit, preCharge, nil
 }
 
@@ -306,7 +314,7 @@ func ApplyRip7560ValidationPhases(
 	}
 	gasPriceUint256, _ := uint256.FromBig(gasPrice)
 
-	gasLimit, preCharge, err := BuyGasRip7560Transaction(aatx, statedb, gasPriceUint256)
+	gasLimit, preCharge, err := BuyGasRip7560Transaction(aatx, statedb, gasPriceUint256, gp)
 	if err != nil {
 		return nil, newValidationPhaseError(err, nil, nil, false)
 	}
@@ -593,6 +601,15 @@ func ApplyRip7560ExecutionPhase(
 	receipt.Status = receiptStatus
 
 	refundPayer(vpr, statedb, gasUsed)
+
+	// Also return remaining gas to the block gas counter so it is
+	// available for the next transaction.
+	totalGasLimit, _ := aatx.TotalGasLimit()
+	if totalGasLimit < gasUsed {
+		panic("cannot spend more gas than the total limit")
+	}
+	gasRemaining := totalGasLimit - gasUsed
+	gp.AddGas(gasRemaining)
 
 	// Set the receipt logs and create the bloom filter.
 	blockNumber := header.Number

@@ -118,7 +118,7 @@ func (tx *Rip7560AccountAbstractionTx) GasPayer() *common.Address {
 	return tx.Sender
 }
 
-func sumGas(vals ...uint64) (uint64, error) {
+func SumGas(vals ...uint64) (uint64, error) {
 	var sum uint64
 	for _, val := range vals {
 		if val > 1<<62 {
@@ -151,7 +151,7 @@ func (tx *Rip7560AccountAbstractionTx) PreTransactionGasCost() (uint64, error) {
 }
 
 func (tx *Rip7560AccountAbstractionTx) callDataGasCost() (uint64, error) {
-	return sumGas(
+	return SumGas(
 		callDataCost(tx.AuthorizationData),
 		callDataCost(tx.DeployerData),
 		callDataCost(tx.ExecutionData),
@@ -175,7 +175,7 @@ func (tx *Rip7560AccountAbstractionTx) eip7702CodeInsertionsGasCost() uint64 {
 }
 
 func (tx *Rip7560AccountAbstractionTx) TotalGasLimit() (uint64, error) {
-	return sumGas(
+	return SumGas(
 		params.Rip7560TxGas,
 		tx.Gas, tx.ValidationGasLimit, tx.PaymasterValidationGasLimit, tx.PostOpGas,
 	)
