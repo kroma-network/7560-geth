@@ -44,6 +44,16 @@ type ValidationPhaseResult struct {
 	PmValidUntil          uint64
 }
 
+func (vpr *ValidationPhaseResult) validationPhaseUsedGas() (uint64, error) {
+	return types.SumGas(
+		vpr.PreTransactionGasCost,
+		vpr.NonceManagerUsedGas,
+		vpr.DeploymentUsedGas,
+		vpr.ValidationUsedGas,
+		vpr.PmValidationUsedGas,
+	)
+}
+
 const (
 	ExecutionStatusSuccess                   = uint64(0)
 	ExecutionStatusExecutionFailure          = uint64(1)
@@ -550,11 +560,8 @@ func ApplyRip7560ExecutionPhase(
 	}
 	executionGasPenalty := (aatx.Gas - executionResult.UsedGas) * AA_GAS_PENALTY_PCT / 100
 
-	gasUsed := vpr.ValidationUsedGas +
-		vpr.NonceManagerUsedGas +
-		vpr.DeploymentUsedGas +
-		vpr.PmValidationUsedGas +
-		vpr.PreTransactionGasCost +
+	validationPhaseUsedGas, _ := vpr.validationPhaseUsedGas()
+	gasUsed := validationPhaseUsedGas +
 		executionResult.UsedGas +
 		executionGasPenalty
 
@@ -583,7 +590,7 @@ func ApplyRip7560ExecutionPhase(
 	refundPayer(vpr, statedb, gasUsed)
 	payCoinbase(st, aatx, gasUsed)
 
-  // Also return remaining gas to the block gas counter so it is
+	// Also return remaining gas to the block gas counter so it is
 	// available for the next transaction.
 	totalGasLimit, _ := aatx.TotalGasLimit()
 	if totalGasLimit < gasUsed {
