@@ -82,6 +82,11 @@ func newValidationPhaseError(
 	revertEntityName *string,
 	frameReverted bool,
 ) *ValidationPhaseError {
+	// TODO: I have my doubts about this way of handling errors in Go. Is this a reasonable thing to do?
+	var vpeCast *ValidationPhaseError
+	if errors.As(innerErr, &vpeCast) {
+		return vpeCast
+	}
 	var errorMessage string
 	contractSubst := ""
 	if revertEntityName != nil {
@@ -184,7 +189,10 @@ func handleRip7560Transactions(
 				if errors.As(vpe, &vpeCast) {
 					debugInfo.RevertData = vpeCast.reason
 					debugInfo.FrameReverted = vpeCast.frameReverted
-					debugInfo.RevertEntityName = *vpeCast.revertEntityName
+					debugInfo.RevertEntityName = ""
+					if vpeCast.revertEntityName != nil {
+						debugInfo.RevertEntityName = *vpeCast.revertEntityName
+					}
 				}
 				statedb.RevertToSnapshot(beforeValidationSnapshotId)
 				continue
@@ -232,12 +240,13 @@ func BuyGasRip7560Transaction(
 	chargeFrom := st.GasPayer()
 
 	if have, want := state.GetBalance(*chargeFrom), preCharge; have.Cmp(want) < 0 {
-		return 0, nil, fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFunds, chargeFrom.Hex(), have, want)
+		return 0, nil, fmt.Errorf("%w: RIP-7560 address %v have %v want %v", ErrInsufficientFunds, chargeFrom.Hex(), have, want)
 	}
 
 	state.SubBalance(*chargeFrom, preCharge, 0)
+	println("BuyGasRip7560Transaction GP:", gp.String(), gasLimit)
 	if err := gp.SubGas(gasLimit); err != nil {
-		return 0, nil, err
+		return 0, nil, newValidationPhaseError(err, nil, ptr("block gas limit"), false)
 	}
 	return gasLimit, preCharge, nil
 }
