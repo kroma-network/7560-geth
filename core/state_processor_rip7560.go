@@ -25,21 +25,21 @@ type EntryPointCall struct {
 }
 
 type ValidationPhaseResult struct {
-	TxIndex             int
-	Tx                  *types.Transaction
-	TxHash              common.Hash
-	PaymasterContext    []byte
-	PreCharge           *uint256.Int
-	EffectiveGasPrice   *uint256.Int
-	CallDataUsedGas     uint64
-	NonceManagerUsedGas uint64
-	DeploymentUsedGas   uint64
-	ValidationUsedGas   uint64
-	PmValidationUsedGas uint64
-	SenderValidAfter    uint64
-	SenderValidUntil    uint64
-	PmValidAfter        uint64
-	PmValidUntil        uint64
+	TxIndex               int
+	Tx                    *types.Transaction
+	TxHash                common.Hash
+	PaymasterContext      []byte
+	PreCharge             *uint256.Int
+	EffectiveGasPrice     *uint256.Int
+	PreTransactionGasCost uint64
+	NonceManagerUsedGas   uint64
+	DeploymentUsedGas     uint64
+	ValidationUsedGas     uint64
+	PmValidationUsedGas   uint64
+	SenderValidAfter      uint64
+	SenderValidUntil      uint64
+	PmValidAfter          uint64
+	PmValidUntil          uint64
 }
 
 const (
@@ -344,6 +344,19 @@ func ApplyRip7560ValidationPhases(
 	st.initialGas = gasLimit
 	st.gasRemaining = gasLimit
 
+	preTransactionGasCost, err := aatx.PreTransactionGasCost()
+	if preTransactionGasCost > aatx.ValidationGasLimit {
+		return nil, newValidationPhaseError(
+			fmt.Errorf(
+				"insufficient ValidationGasLimit(%d) to cover PreTransactionGasCost(%d)",
+				aatx.ValidationGasLimit, preTransactionGasCost,
+			),
+			nil,
+			nil,
+			false,
+		)
+	}
+
 	/*** Nonce Manager Frame ***/
 	nonceManagerUsedGas, err := CheckNonceRip7560(st, aatx)
 	if err != nil {
@@ -356,7 +369,8 @@ func ApplyRip7560ValidationPhases(
 		if statedb.GetCodeSize(*sender) != 0 {
 			return nil, fmt.Errorf("account deployment failed: already deployed")
 		}
-		resultDeployer := CallFrame(st, &AA_SENDER_CREATOR, aatx.Deployer, aatx.DeployerData, aatx.ValidationGasLimit)
+		deployerGasLimit := aatx.ValidationGasLimit - preTransactionGasCost
+		resultDeployer := CallFrame(st, &AA_SENDER_CREATOR, aatx.Deployer, aatx.DeployerData, deployerGasLimit)
 		if resultDeployer.Failed() {
 			return nil, newValidationPhaseError(
 				resultDeployer.Err,
@@ -392,7 +406,8 @@ func ApplyRip7560ValidationPhases(
 	if err != nil {
 		return nil, newValidationPhaseError(err, nil, nil, false)
 	}
-	resultAccountValidation := CallFrame(st, &AA_ENTRY_POINT, aatx.Sender, accountValidationMsg, aatx.ValidationGasLimit-deploymentUsedGas)
+	accountGasLimit := aatx.ValidationGasLimit - preTransactionGasCost - deploymentUsedGas
+	resultAccountValidation := CallFrame(st, &AA_ENTRY_POINT, aatx.Sender, accountValidationMsg, accountGasLimit)
 	if resultAccountValidation.Failed() {
 		return nil, newValidationPhaseError(
 			resultAccountValidation.Err,
@@ -421,25 +436,24 @@ func ApplyRip7560ValidationPhases(
 		return nil, err
 	}
 
-	callDataUsedGas, err := aatx.CallDataGasCost()
 	if err != nil {
 		return nil, err
 	}
 	vpr := &ValidationPhaseResult{
-		Tx:                  tx,
-		TxHash:              tx.Hash(),
-		PreCharge:           preCharge,
-		EffectiveGasPrice:   gasPriceUint256,
-		PaymasterContext:    paymasterContext,
-		CallDataUsedGas:     callDataUsedGas,
-		DeploymentUsedGas:   deploymentUsedGas,
-		NonceManagerUsedGas: nonceManagerUsedGas,
-		ValidationUsedGas:   resultAccountValidation.UsedGas,
-		PmValidationUsedGas: pmValidationUsedGas,
-		SenderValidAfter:    aad.ValidAfter.Uint64(),
-		SenderValidUntil:    aad.ValidUntil.Uint64(),
-		PmValidAfter:        pmValidAfter,
-		PmValidUntil:        pmValidUntil,
+		Tx:                    tx,
+		TxHash:                tx.Hash(),
+		PreCharge:             preCharge,
+		EffectiveGasPrice:     gasPriceUint256,
+		PaymasterContext:      paymasterContext,
+		PreTransactionGasCost: preTransactionGasCost,
+		DeploymentUsedGas:     deploymentUsedGas,
+		NonceManagerUsedGas:   nonceManagerUsedGas,
+		ValidationUsedGas:     resultAccountValidation.UsedGas,
+		PmValidationUsedGas:   pmValidationUsedGas,
+		SenderValidAfter:      aad.ValidAfter.Uint64(),
+		SenderValidUntil:      aad.ValidUntil.Uint64(),
+		PmValidAfter:          pmValidAfter,
+		PmValidUntil:          pmValidUntil,
 	}
 	statedb.Finalise(true)
 
@@ -526,7 +540,7 @@ func ApplyRip7560ExecutionPhase(
 		vpr.NonceManagerUsedGas +
 		vpr.DeploymentUsedGas +
 		vpr.PmValidationUsedGas +
-		vpr.CallDataUsedGas +
+		vpr.PreTransactionGasCost +
 		executionResult.UsedGas +
 		executionGasPenalty
 
