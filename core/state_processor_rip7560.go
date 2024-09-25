@@ -44,6 +44,16 @@ type ValidationPhaseResult struct {
 	PmValidUntil          uint64
 }
 
+func (vpr *ValidationPhaseResult) validationPhaseUsedGas() (uint64, error) {
+	return types.SumGas(
+		vpr.PreTransactionGasCost,
+		vpr.NonceManagerUsedGas,
+		vpr.DeploymentUsedGas,
+		vpr.ValidationUsedGas,
+		vpr.PmValidationUsedGas,
+	)
+}
+
 const (
 	ExecutionStatusSuccess                   = uint64(0)
 	ExecutionStatusExecutionFailure          = uint64(1)
@@ -80,6 +90,10 @@ func newValidationPhaseError(
 	revertEntityName *string,
 	frameReverted bool,
 ) *ValidationPhaseError {
+	var vpeCast *ValidationPhaseError
+	if errors.As(innerErr, &vpeCast) {
+		return vpeCast
+	}
 	var errorMessage string
 	contractSubst := ""
 	if revertEntityName != nil {
@@ -182,7 +196,10 @@ func handleRip7560Transactions(
 				if errors.As(vpe, &vpeCast) {
 					debugInfo.RevertData = vpeCast.reason
 					debugInfo.FrameReverted = vpeCast.frameReverted
-					debugInfo.RevertEntityName = *vpeCast.revertEntityName
+					debugInfo.RevertEntityName = ""
+					if vpeCast.revertEntityName != nil {
+						debugInfo.RevertEntityName = *vpeCast.revertEntityName
+					}
 				}
 				statedb.RevertToSnapshot(beforeValidationSnapshotId)
 				continue
@@ -212,7 +229,12 @@ func handleRip7560Transactions(
 	return validatedTransactions, receipts, validationFailureInfos, allLogs, nil
 }
 
-func BuyGasRip7560Transaction(st *types.Rip7560AccountAbstractionTx, state vm.StateDB, gasPrice *uint256.Int) (uint64, *uint256.Int, error) {
+func BuyGasRip7560Transaction(
+	st *types.Rip7560AccountAbstractionTx,
+	state vm.StateDB,
+	gasPrice *uint256.Int,
+	gp *GasPool,
+) (uint64, *uint256.Int, error) {
 	gasLimit, err := st.TotalGasLimit()
 	if err != nil {
 		return 0, nil, err
@@ -225,10 +247,13 @@ func BuyGasRip7560Transaction(st *types.Rip7560AccountAbstractionTx, state vm.St
 	chargeFrom := st.GasPayer()
 
 	if have, want := state.GetBalance(*chargeFrom), preCharge; have.Cmp(want) < 0 {
-		return 0, nil, fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFunds, chargeFrom.Hex(), have, want)
+		return 0, nil, fmt.Errorf("%w: RIP-7560 address %v have %v want %v", ErrInsufficientFunds, chargeFrom.Hex(), have, want)
 	}
 
 	state.SubBalance(*chargeFrom, preCharge, 0)
+	if err := gp.SubGas(gasLimit); err != nil {
+		return 0, nil, newValidationPhaseError(err, nil, ptr("block gas limit"), false)
+	}
 	return gasLimit, preCharge, nil
 }
 
@@ -315,7 +340,7 @@ func ApplyRip7560ValidationPhases(
 
 	gasPrice := aatx.EffectiveGasPrice(header.BaseFee)
 	effectiveGasPrice := uint256.MustFromBig(gasPrice)
-	gasLimit, preCharge, err := BuyGasRip7560Transaction(aatx, statedb, effectiveGasPrice)
+	gasLimit, preCharge, err := BuyGasRip7560Transaction(aatx, statedb, effectiveGasPrice, gp)
 	if err != nil {
 		return nil, wrapError(err)
 	}
@@ -635,11 +660,8 @@ func ApplyRip7560ExecutionPhase(
 	}
 	executionGasPenalty := (aatx.Gas - executionResult.UsedGas) * AA_GAS_PENALTY_PCT / 100
 
-	gasUsed := vpr.ValidationUsedGas +
-		vpr.NonceManagerUsedGas +
-		vpr.DeploymentUsedGas +
-		vpr.PmValidationUsedGas +
-		vpr.PreTransactionGasCost +
+	validationPhaseUsedGas, _ := vpr.validationPhaseUsedGas()
+	gasUsed := validationPhaseUsedGas +
 		executionResult.UsedGas +
 		executionGasPenalty
 
@@ -667,6 +689,15 @@ func ApplyRip7560ExecutionPhase(
 	gasUsed -= gasRefund
 	refundPayer(vpr, statedb, gasUsed)
 	payCoinbase(st, aatx, gasUsed)
+
+	// Also return remaining gas to the block gas counter so it is
+	// available for the next transaction.
+	totalGasLimit, _ := aatx.TotalGasLimit()
+	if totalGasLimit < gasUsed {
+		panic("cannot spend more gas than the total limit")
+	}
+	gasRemaining := totalGasLimit - gasUsed
+	gp.AddGas(gasRemaining)
 
 	err := injectRIP7560TransactionEvent(aatx, executionStatus, header, statedb)
 	if err != nil {
