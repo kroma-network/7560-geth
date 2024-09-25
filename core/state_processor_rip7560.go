@@ -404,7 +404,7 @@ func ApplyRip7560ValidationPhases(
 		if statedb.GetCodeSize(*sender) == 0 {
 			return nil, newValidationPhaseError(
 				fmt.Errorf(
-					"sender not deployed by factory, sender:%s factory:%s",
+					"sender not deployed by the deployer, sender:%s deployer:%s",
 					sender.String(), aatx.Deployer.String(),
 				), nil, nil, false)
 		}
@@ -413,7 +413,7 @@ func ApplyRip7560ValidationPhases(
 		if statedb.GetCodeSize(*sender) == 0 {
 			return nil, newValidationPhaseError(
 				fmt.Errorf(
-					"account is not deployed and no factory is specified, account:%s", sender.String(),
+					"account is not deployed and no deployer is specified, account:%s", sender.String(),
 				), nil, nil, false)
 		}
 		if !aatx.IsRip7712Nonce() {
