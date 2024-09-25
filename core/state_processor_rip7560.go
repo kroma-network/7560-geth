@@ -82,7 +82,6 @@ func newValidationPhaseError(
 	revertEntityName *string,
 	frameReverted bool,
 ) *ValidationPhaseError {
-	// TODO: I have my doubts about this way of handling errors in Go. Is this a reasonable thing to do?
 	var vpeCast *ValidationPhaseError
 	if errors.As(innerErr, &vpeCast) {
 		return vpeCast
@@ -244,7 +243,6 @@ func BuyGasRip7560Transaction(
 	}
 
 	state.SubBalance(*chargeFrom, preCharge, 0)
-	println("BuyGasRip7560Transaction GP:", gp.String(), gasLimit)
 	if err := gp.SubGas(gasLimit); err != nil {
 		return 0, nil, newValidationPhaseError(err, nil, ptr("block gas limit"), false)
 	}
