@@ -270,13 +270,6 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	}
 	legacyPool := legacypool.New(config.TxPool, eth.blockchain)
 
-	txPools := []txpool.SubPool{legacyPool}
-	if !eth.BlockChain().Config().IsOptimism() {
-		blobPool := blobpool.New(config.BlobPool, eth.blockchain)
-		txPools = append(txPools, blobPool)
-	}
-	eth.txPool, err = txpool.New(config.TxPool.PriceLimit, eth.blockchain, txPools)
-
 	rip7560PoolConfig := rip7560pool.Config{
 		MaxBundleGas:  config.Rip7560MaxBundleGas,
 		MaxBundleSize: config.Rip7560MaxBundleSize,
@@ -284,7 +277,13 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	}
 	rip7560 := rip7560pool.New(rip7560PoolConfig, eth.blockchain, config.Miner.Etherbase)
 
-	eth.txPool, err = txpool.New(config.TxPool.PriceLimit, eth.blockchain, []txpool.SubPool{legacyPool, blobPool, rip7560})
+	txPools := []txpool.SubPool{legacyPool, rip7560}
+	if !eth.BlockChain().Config().IsOptimism() {
+		blobPool := blobpool.New(config.BlobPool, eth.blockchain)
+		txPools = append(txPools, blobPool)
+	}
+	eth.txPool, err = txpool.New(config.TxPool.PriceLimit, eth.blockchain, txPools)
+
 	if err != nil {
 		return nil, err
 	}
