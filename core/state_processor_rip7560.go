@@ -345,7 +345,7 @@ func ApplyRip7560ValidationPhases(
 		return nil, wrapError(err)
 	}
 
-	blockContext := NewEVMBlockContext(header, bc, coinbase)
+	blockContext := NewEVMBlockContext(header, bc, coinbase, chainConfig, statedb)
 	sender := aatx.Sender
 	txContext := vm.TxContext{
 		Origin:   *aatx.Sender,
@@ -635,7 +635,7 @@ func ApplyRip7560ExecutionPhase(
 	usedGas *uint64,
 ) (*types.Receipt, error) {
 
-	blockContext := NewEVMBlockContext(header, bc, author)
+	blockContext := NewEVMBlockContext(header, bc, author, config, statedb)
 	aatx := vpr.Tx.Rip7560TransactionData()
 	sender := aatx.Sender
 	txContext := vm.TxContext{
