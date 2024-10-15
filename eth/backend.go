@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ethereum/go-ethereum/core/txpool/rip7560pool"
 	"math/big"
 	"runtime"
 	"sync"
@@ -275,6 +276,15 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		txPools = append(txPools, blobPool)
 	}
 	eth.txPool, err = txpool.New(config.TxPool.PriceLimit, eth.blockchain, txPools)
+
+	rip7560PoolConfig := rip7560pool.Config{
+		MaxBundleGas:  config.Rip7560MaxBundleGas,
+		MaxBundleSize: config.Rip7560MaxBundleSize,
+		PullUrls:      config.Rip7560PullUrls,
+	}
+	rip7560 := rip7560pool.New(rip7560PoolConfig, eth.blockchain, config.Miner.Etherbase)
+
+	eth.txPool, err = txpool.New(config.TxPool.PriceLimit, eth.blockchain, []txpool.SubPool{legacyPool, blobPool, rip7560})
 	if err != nil {
 		return nil, err
 	}
@@ -298,7 +308,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	eth.miner = miner.New(eth, config.Miner, eth.engine)
 	eth.miner.SetExtra(makeExtraData(config.Miner.ExtraData))
 
-	eth.APIBackend = &EthAPIBackend{stack.Config().ExtRPCEnabled(), stack.Config().AllowUnprotectedTxs, config.RollupDisableTxPoolAdmission, eth, nil}
+	eth.APIBackend = &EthAPIBackend{config.Rip7560AcceptPush, stack.Config().ExtRPCEnabled(), stack.Config().AllowUnprotectedTxs, config.RollupDisableTxPoolAdmission, eth, nil}
 	if eth.APIBackend.allowUnprotectedTxs {
 		log.Info("Unprotected transactions allowed")
 	}
