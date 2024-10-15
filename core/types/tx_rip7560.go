@@ -53,6 +53,8 @@ type Rip7560AccountAbstractionTx struct {
 	NonceKey *big.Int
 }
 
+func (tx *Rip7560AccountAbstractionTx) isSystemTx() bool { return false }
+
 // copy creates a deep copy of the transaction data and initializes all fields.
 func (tx *Rip7560AccountAbstractionTx) copy() TxData {
 	cpy := &Rip7560AccountAbstractionTx{
