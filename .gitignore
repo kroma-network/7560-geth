@@ -57,3 +57,5 @@ tests/spec-tests/
 /alexfdata/prysmctl
 /alexfdata/validator
 /alexfdata/genesis.ssz
+
+/db
