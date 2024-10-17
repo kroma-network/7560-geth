@@ -50,7 +50,7 @@ const (
 	AccessListTxType = 0x01
 	DynamicFeeTxType = 0x02
 	BlobTxType       = 0x03
-	Rip7560Type      = 0x04
+	Rip7560Type      = 0x05
 )
 
 // Transaction is an Ethereum transaction.
