@@ -63,6 +63,22 @@ type txJSON struct {
 
 	// Only used for encoding:
 	Hash common.Hash `json:"hash"`
+
+	// RIP 7560 transaction fields
+	Sender            *common.Address `json:"sender,omitempty"`
+	AuthorizationData *hexutil.Bytes  `json:"authorizationData,omitempty"`
+	ExecutionData     *hexutil.Bytes  `json:"executionData,omitempty"`
+	Paymaster         *common.Address `json:"paymaster,omitempty"`
+	PaymasterData     *hexutil.Bytes  `json:"paymasterData,omitempty"`
+	Deployer          *common.Address `json:"deployer,omitempty"`
+	DeployerData      *hexutil.Bytes  `json:"deployerData,omitempty"`
+	BuilderFee        *hexutil.Big    `json:"builderFee,omitempty"`
+	ValidationGas     *hexutil.Uint64 `json:"verificationGasLimit,omitempty"`
+	PaymasterGas      *hexutil.Uint64 `json:"paymasterVerificationGasLimit,omitempty"`
+	PostOpGas         *hexutil.Uint64 `json:"paymasterPostOpGasLimit,omitempty"`
+
+	// RIP 7712 additional transaction field
+	NonceKey *hexutil.Big `json:"nonceKey,omitempty"`
 }
 
 // yParityValue returns the YParity value from JSON. For backwards-compatibility reasons,
@@ -174,6 +190,28 @@ func (tx *Transaction) MarshalJSON() ([]byte, error) {
 		}
 		enc.IsSystemTx = &itx.IsSystemTransaction
 		// other fields will show up as null.
+
+	case *Rip7560AccountAbstractionTx:
+		enc.ChainID = (*hexutil.Big)(itx.ChainID)
+		enc.MaxPriorityFeePerGas = (*hexutil.Big)(itx.GasTipCap)
+		enc.MaxFeePerGas = (*hexutil.Big)(itx.GasFeeCap)
+		enc.Gas = (*hexutil.Uint64)(&itx.Gas)
+		enc.AccessList = &itx.AccessList
+		enc.Sender = itx.Sender
+		enc.AuthorizationData = (*hexutil.Bytes)(&itx.AuthorizationData)
+		enc.ExecutionData = (*hexutil.Bytes)(&itx.ExecutionData)
+		enc.Paymaster = itx.Paymaster
+		enc.PaymasterData = (*hexutil.Bytes)(&itx.PaymasterData)
+		enc.Deployer = itx.Deployer
+		enc.DeployerData = (*hexutil.Bytes)(&itx.DeployerData)
+		enc.BuilderFee = (*hexutil.Big)(itx.BuilderFee)
+		enc.ValidationGas = (*hexutil.Uint64)(&itx.ValidationGasLimit)
+		enc.PaymasterGas = (*hexutil.Uint64)(&itx.PaymasterValidationGasLimit)
+		enc.PostOpGas = (*hexutil.Uint64)(&itx.PostOpGas)
+		enc.Nonce = (*hexutil.Uint64)(&itx.Nonce)
+		enc.To = tx.To()
+		enc.NonceKey = (*hexutil.Big)(itx.NonceKey)
+		enc.Value = (*hexutil.Big)(itx.value())
 	}
 	return json.Marshal(&enc)
 }
@@ -477,6 +515,79 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 
 		if dec.Nonce != nil {
 			inner = &depositTxWithNonce{DepositTx: itx, EffectiveNonce: uint64(*dec.Nonce)}
+		}
+
+	case Rip7560Type:
+		var itx Rip7560AccountAbstractionTx
+		inner = &itx
+
+		if dec.ChainID == nil {
+			return errors.New("missing required field 'chainId' in transaction")
+		}
+		itx.ChainID = (*big.Int)(dec.ChainID)
+		if dec.MaxPriorityFeePerGas == nil {
+			return errors.New("missing required field 'maxPriorityFeePerGas' for txdata")
+		}
+		itx.GasTipCap = (*big.Int)(dec.MaxPriorityFeePerGas)
+		if dec.MaxFeePerGas == nil {
+			return errors.New("missing required field 'maxFeePerGas' for txdata")
+		}
+		itx.GasFeeCap = (*big.Int)(dec.MaxFeePerGas)
+		if dec.Gas == nil {
+			return errors.New("missing required field 'gas' for txdata")
+		}
+		itx.Gas = uint64(*dec.Gas)
+		if dec.ExecutionData == nil {
+			return errors.New("missing required field 'executionData' in transaction")
+		}
+		itx.ExecutionData = *dec.ExecutionData
+		if dec.AccessList != nil {
+			itx.AccessList = *dec.AccessList
+		}
+		if dec.Sender == nil {
+			return errors.New("sender value must not be nil")
+		}
+		itx.Sender = dec.Sender
+		if dec.AuthorizationData != nil {
+			itx.AuthorizationData = *dec.AuthorizationData
+		}
+		if dec.Paymaster != nil {
+			itx.Paymaster = dec.Paymaster
+		}
+		if dec.PaymasterData != nil {
+			itx.PaymasterData = *dec.PaymasterData
+		}
+		if dec.Deployer != nil {
+			itx.Deployer = dec.Deployer
+		}
+		if dec.DeployerData != nil {
+			itx.DeployerData = *dec.DeployerData
+		}
+		if dec.NonceKey == nil {
+			itx.NonceKey = (*big.Int)(dec.NonceKey)
+		}
+		if dec.BuilderFee == nil {
+			return errors.New("missing required field 'builderFee' for txdata")
+		}
+		itx.BuilderFee = (*big.Int)(dec.BuilderFee)
+		if dec.ValidationGas == nil {
+			return errors.New("missing required field 'validationGas' for txdata")
+		}
+		itx.ValidationGasLimit = uint64(*dec.ValidationGas)
+		if dec.PaymasterGas == nil {
+			return errors.New("missing required field 'payMasterGas' for txdata")
+		}
+		itx.PaymasterValidationGasLimit = uint64(*dec.PaymasterGas)
+		if dec.PostOpGas == nil {
+			return errors.New("missing required field 'postOpGas' for txdata")
+		}
+		itx.PostOpGas = uint64(*dec.PostOpGas)
+		if dec.Nonce == nil {
+			return errors.New("missing required field 'nonce' in transaction")
+		}
+		itx.Nonce = uint64(*dec.Nonce)
+		if dec.Value == nil {
+			return errors.New("missing required field 'value' in transaction")
 		}
 	default:
 		return ErrTxTypeNotSupported
