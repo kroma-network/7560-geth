@@ -229,11 +229,28 @@ func handleRip7560Transactions(
 	return validatedTransactions, receipts, validationFailureInfos, allLogs, nil
 }
 
+func calculateRollupCost(
+	chainConfig *params.ChainConfig,
+	header *types.Header,
+	tx *types.Transaction,
+	state vm.StateDB,
+) (*uint256.Int, error) {
+	// calculate rollup cost
+	L1CostFunc := types.NewL1CostFunc(chainConfig, state)
+	if L1CostFunc == nil {
+		return nil, wrapError(
+			fmt.Errorf("L1CostFunc is nil. Maybe config.Optimism is not set"),
+		)
+	}
+	return uint256.MustFromBig(L1CostFunc(tx.RollupCostData(), header.Time)), nil
+}
+
 func BuyGasRip7560Transaction(
 	st *types.Rip7560AccountAbstractionTx,
 	state vm.StateDB,
 	gasPrice *uint256.Int,
 	gp *GasPool,
+	rollupCost *uint256.Int,
 ) (uint64, *uint256.Int, error) {
 	gasLimit, err := st.TotalGasLimit()
 	if err != nil {
@@ -243,6 +260,10 @@ func BuyGasRip7560Transaction(
 	//TODO: check gasLimit against block gasPool
 	preCharge := new(uint256.Int).SetUint64(gasLimit)
 	preCharge = preCharge.Mul(preCharge, gasPrice)
+
+	// adjust rollup cost
+	gasLimit += rollupCost.Uint64()
+	preCharge = preCharge.Add(preCharge, rollupCost)
 
 	chargeFrom := st.GasPayer()
 
@@ -340,7 +361,14 @@ func ApplyRip7560ValidationPhases(
 
 	gasPrice := aatx.EffectiveGasPrice(header.BaseFee)
 	effectiveGasPrice := uint256.MustFromBig(gasPrice)
-	gasLimit, preCharge, err := BuyGasRip7560Transaction(aatx, statedb, effectiveGasPrice, gp)
+
+	// calculate rollup cost
+	rollupCost, err := calculateRollupCost(chainConfig, header, tx, statedb)
+	if err != nil {
+		return nil, err
+	}
+
+	gasLimit, preCharge, err := BuyGasRip7560Transaction(aatx, statedb, effectiveGasPrice, gp, rollupCost)
 	if err != nil {
 		return nil, wrapError(err)
 	}
