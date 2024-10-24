@@ -512,6 +512,13 @@ func toUint64(b *hexutil.Uint64) uint64 {
 	return uint64(*b)
 }
 
+func toByte(b *hexutil.Bytes) []byte {
+	if b == nil {
+		return []byte{}
+	}
+	return *b
+}
+
 // ToTransaction converts the arguments to a transaction.
 // This assumes that setDefaults has been called.
 func (args *TransactionArgs) ToTransaction() *types.Transaction {
@@ -525,7 +532,7 @@ func (args *TransactionArgs) ToTransaction() *types.Transaction {
 		aatx := types.Rip7560AccountAbstractionTx{
 			//To:            &common.Address{},
 			ChainID:   (*big.Int)(args.ChainID),
-			Gas:       uint64(*args.Gas),
+			Gas:       toUint64(args.Gas),
 			NonceKey:  (*big.Int)(args.NonceKey),
 			Nonce:     uint64(*args.Nonce),
 			GasFeeCap: (*big.Int)(args.MaxFeePerGas),
@@ -537,9 +544,9 @@ func (args *TransactionArgs) ToTransaction() *types.Transaction {
 			Sender:                      args.Sender,
 			AuthorizationData:           *args.AuthorizationData,
 			Paymaster:                   args.Paymaster,
-			PaymasterData:               *args.PaymasterData,
+			PaymasterData:               toByte(args.PaymasterData),
 			Deployer:                    args.Deployer,
-			DeployerData:                *args.DeployerData,
+			DeployerData:                toByte(args.DeployerData),
 			BuilderFee:                  (*big.Int)(args.BuilderFee),
 			ValidationGasLimit:          toUint64(args.ValidationGas),
 			PaymasterValidationGasLimit: toUint64(args.PaymasterGas),
