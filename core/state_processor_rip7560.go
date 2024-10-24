@@ -44,7 +44,7 @@ type ValidationPhaseResult struct {
 	PmValidUntil          uint64
 }
 
-func (vpr *ValidationPhaseResult) validationPhaseUsedGas() (uint64, error) {
+func (vpr *ValidationPhaseResult) ValidationPhaseUsedGas() (uint64, error) {
 	return types.SumGas(
 		vpr.PreTransactionGasCost,
 		vpr.NonceManagerUsedGas,
@@ -216,7 +216,7 @@ func handleRip7560Transactions(
 		// TODO: this will miss all validation phase events - pass in 'vpr'
 		// statedb.SetTxContext(vpr.Tx.Hash(), i)
 
-		receipt, err := ApplyRip7560ExecutionPhase(chainConfig, vpr, bc, coinbase, gp, statedb, header, cfg, usedGas)
+		receipt, _, _, err := ApplyRip7560ExecutionPhase(chainConfig, vpr, bc, coinbase, gp, statedb, header, cfg, usedGas)
 
 		if err != nil {
 			return nil, nil, nil, nil, err
@@ -229,7 +229,7 @@ func handleRip7560Transactions(
 	return validatedTransactions, receipts, validationFailureInfos, allLogs, nil
 }
 
-func calculateRollupCost(
+func CalculateRollupCost(
 	chainConfig *params.ChainConfig,
 	header *types.Header,
 	tx *types.Transaction,
@@ -363,7 +363,7 @@ func ApplyRip7560ValidationPhases(
 	effectiveGasPrice := uint256.MustFromBig(gasPrice)
 
 	// calculate rollup cost
-	rollupCost, err := calculateRollupCost(chainConfig, header, tx, statedb)
+	rollupCost, err := CalculateRollupCost(chainConfig, header, tx, statedb)
 	if err != nil {
 		return nil, err
 	}
@@ -661,7 +661,7 @@ func ApplyRip7560ExecutionPhase(
 	header *types.Header,
 	cfg vm.Config,
 	usedGas *uint64,
-) (*types.Receipt, error) {
+) (*types.Receipt, *ExecutionResult, *ExecutionResult, error) {
 
 	blockContext := NewEVMBlockContext(header, bc, author, config, statedb)
 	aatx := vpr.Tx.Rip7560TransactionData()
@@ -688,7 +688,7 @@ func ApplyRip7560ExecutionPhase(
 	}
 	executionGasPenalty := (aatx.Gas - executionResult.UsedGas) * AA_GAS_PENALTY_PCT / 100
 
-	validationPhaseUsedGas, _ := vpr.validationPhaseUsedGas()
+	validationPhaseUsedGas, _ := vpr.ValidationPhaseUsedGas()
 	gasUsed := validationPhaseUsedGas +
 		executionResult.UsedGas +
 		executionGasPenalty
@@ -729,24 +729,24 @@ func ApplyRip7560ExecutionPhase(
 
 	err := injectRIP7560TransactionEvent(aatx, executionStatus, header, statedb)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	if aatx.Deployer != nil {
 		err = injectRIP7560AccountDeployedEvent(aatx, header, statedb)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 	}
 	if executionResult.Failed() {
 		err = injectRIP7560TransactionRevertReasonEvent(aatx, executionResult.ReturnData, header, statedb)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 	}
 	if paymasterPostOpResult != nil && paymasterPostOpResult.Failed() {
 		err = injectRIP7560TransactionPostOpRevertReasonEvent(aatx, paymasterPostOpResult.ReturnData, header, statedb)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 	}
 
@@ -763,7 +763,7 @@ func ApplyRip7560ExecutionPhase(
 	receipt.Bloom = types.CreateBloom(types.Receipts{receipt})
 	receipt.TransactionIndex = uint(vpr.TxIndex)
 	// other fields are filled in DeriveFields (all tx, block fields, and updating CumulativeGasUsed
-	return receipt, nil
+	return receipt, executionResult, paymasterPostOpResult, nil
 }
 
 func injectRIP7560TransactionEvent(
