@@ -352,7 +352,13 @@ func ApplyRip7560ValidationPhases(
 	header *types.Header,
 	tx *types.Transaction,
 	cfg vm.Config,
+	estimateFlag ...bool,
 ) (*ValidationPhaseResult, error) {
+	var estimate = false
+	if len(estimateFlag) > 0 && estimateFlag[0] {
+		estimate = estimateFlag[0]
+	}
+
 	aatx := tx.Rip7560TransactionData()
 	err := performStaticValidation(aatx, statedb)
 	if err != nil {
@@ -461,7 +467,7 @@ func ApplyRip7560ValidationPhases(
 			true,
 		)
 	}
-	aad, err := validateAccountEntryPointCall(epc, aatx.Sender)
+	aad, err := validateAccountEntryPointCall(epc, aatx.Sender, estimate)
 	if err != nil {
 		return nil, wrapError(err)
 	}
@@ -476,7 +482,7 @@ func ApplyRip7560ValidationPhases(
 		return nil, wrapError(err)
 	}
 
-	paymasterContext, pmValidationUsedGas, pmValidAfter, pmValidUntil, err := applyPaymasterValidationFrame(st, epc, tx, signingHash, header)
+	paymasterContext, pmValidationUsedGas, pmValidAfter, pmValidUntil, err := applyPaymasterValidationFrame(st, epc, tx, signingHash, header, estimate)
 	if err != nil {
 		return nil, err
 	}
@@ -595,7 +601,7 @@ func performStaticValidation(
 	return nil
 }
 
-func applyPaymasterValidationFrame(st *StateTransition, epc *EntryPointCall, tx *types.Transaction, signingHash common.Hash, header *types.Header) ([]byte, uint64, uint64, uint64, error) {
+func applyPaymasterValidationFrame(st *StateTransition, epc *EntryPointCall, tx *types.Transaction, signingHash common.Hash, header *types.Header, estimate bool) ([]byte, uint64, uint64, uint64, error) {
 	/*** Paymaster Validation Frame ***/
 	aatx := tx.Rip7560TransactionData()
 	var pmValidationUsedGas uint64
@@ -617,7 +623,7 @@ func applyPaymasterValidationFrame(st *StateTransition, epc *EntryPointCall, tx 
 		)
 	}
 	pmValidationUsedGas = resultPm.UsedGas
-	apd, err := validatePaymasterEntryPointCall(epc, aatx.Paymaster)
+	apd, err := validatePaymasterEntryPointCall(epc, aatx.Paymaster, estimate)
 	if err != nil {
 		return nil, 0, 0, 0, wrapError(err)
 	}
@@ -892,7 +898,7 @@ func preparePostOpMessage(vpr *ValidationPhaseResult, success bool, gasUsed uint
 	return abiEncodePostPaymasterTransaction(success, gasUsed, vpr.PaymasterContext)
 }
 
-func validateAccountEntryPointCall(epc *EntryPointCall, sender *common.Address) (*AcceptAccountData, error) {
+func validateAccountEntryPointCall(epc *EntryPointCall, sender *common.Address, estimate bool) (*AcceptAccountData, error) {
 	if epc.err != nil {
 		return nil, epc.err
 	}
@@ -902,10 +908,10 @@ func validateAccountEntryPointCall(epc *EntryPointCall, sender *common.Address) 
 	if epc.From.Cmp(*sender) != 0 {
 		return nil, errors.New("invalid call to EntryPoint contract from a wrong account address")
 	}
-	return abiDecodeAcceptAccount(epc.Input, false)
+	return abiDecodeAcceptAccount(epc.Input, estimate)
 }
 
-func validatePaymasterEntryPointCall(epc *EntryPointCall, paymaster *common.Address) (*AcceptPaymasterData, error) {
+func validatePaymasterEntryPointCall(epc *EntryPointCall, paymaster *common.Address, estimate bool) (*AcceptPaymasterData, error) {
 	if epc.err != nil {
 		return nil, epc.err
 	}
@@ -916,7 +922,7 @@ func validatePaymasterEntryPointCall(epc *EntryPointCall, paymaster *common.Addr
 	if epc.From.Cmp(*paymaster) != 0 {
 		return nil, errors.New("invalid call to EntryPoint contract from a wrong paymaster address")
 	}
-	apd, err := abiDecodeAcceptPaymaster(epc.Input, false)
+	apd, err := abiDecodeAcceptPaymaster(epc.Input, estimate)
 	if err != nil {
 		return nil, err
 	}
