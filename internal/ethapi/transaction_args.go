@@ -455,6 +455,44 @@ func (args *TransactionArgs) CallDefaults(globalGasCap uint64, baseFee *big.Int,
 	return nil
 }
 
+func (args *TransactionArgs) Call7560Defaults(globalGasCap uint64, baseFee *big.Int, chainID *big.Int) error {
+	if args.Sender == nil {
+		return errors.New(`missing "Sender" in transaction`)
+	}
+	if args.BuilderFee == nil {
+		args.BuilderFee = new(hexutil.Big)
+	}
+	if args.Paymaster == nil {
+		args.Paymaster = &common.Address{}
+		args.PaymasterData = &hexutil.Bytes{}
+		args.PaymasterGas = new(hexutil.Uint64)
+		args.PostOpGas = new(hexutil.Uint64)
+	}
+	if args.Deployer == nil {
+		args.Deployer = &common.Address{}
+		args.DeployerData = &hexutil.Bytes{}
+	}
+	if args.NonceKey == nil {
+		args.NonceKey = new(hexutil.Big)
+	}
+	if args.ValidationGas == nil {
+		gas := globalGasCap
+		if gas == 0 {
+			gas = uint64(math.MaxUint64 / 2)
+		}
+		args.ValidationGas = (*hexutil.Uint64)(&gas)
+	} else {
+		if globalGasCap > 0 && globalGasCap < uint64(*args.ValidationGas) {
+			log.Warn("Caller ValidationGas above allowance, capping", "requested", args.Gas, "cap", globalGasCap)
+			args.ValidationGas = (*hexutil.Uint64)(&globalGasCap)
+		}
+	}
+	if err := args.CallDefaults(globalGasCap, baseFee, chainID); err != nil {
+		return err
+	}
+	return nil
+}
+
 // ToMessage converts the transaction arguments to the Message type used by the
 // core evm. This method is used in calls and traces that do not require a real
 // live transaction.

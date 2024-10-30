@@ -176,6 +176,9 @@ func DoEstimateRip7560TransactionGas(ctx context.Context, b Backend, args Transa
 	// Construct the gas estimator option from the user input
 	chainConfig := b.ChainConfig()
 	bc := NewChainContext(ctx, b)
+	if err := args.Call7560Defaults(gasCap, header.BaseFee, chainConfig.ChainID); err != nil {
+		return nil, err
+	}
 	tx := args.ToTransaction()
 
 	gasPrice := new(big.Int).Add(header.BaseFee, tx.GasTipCap())
