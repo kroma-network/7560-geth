@@ -22,8 +22,8 @@ import (
 )
 
 type Rip7560UsedGas struct {
-	ValidationGas hexutil.Uint64 `json:"validationGas"`
-	ExecutionGas  hexutil.Uint64 `json:"executionGas"`
+	ValidationGas hexutil.Uint64 `json:"verificationGasLimit"`
+	ExecutionGas  hexutil.Uint64 `json:"callGasLimit"`
 }
 
 func (s *TransactionAPI) SendRip7560TransactionsBundle(ctx context.Context, args []TransactionArgs, creationBlock *big.Int, bundlerId string) (common.Hash, error) {
