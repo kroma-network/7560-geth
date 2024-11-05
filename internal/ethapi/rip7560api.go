@@ -228,15 +228,14 @@ func (s *BlockChainAPI) EstimateRip7560TransactionGas(ctx context.Context, args 
 		bNrOrHash = *blockNrOrHash
 	}
 
-	// TODO(sm-stack): Configure RIP-7560 enabled devnet option
-	//header, err := headerByNumberOrHash(ctx, s.b, bNrOrHash)
-	//if err != nil {
-	//	return 0, err
-	//}
+	header, err := headerByNumberOrHash(ctx, s.b, bNrOrHash)
+	if err != nil {
+		return nil, err
+	}
 
-	//if s.b.ChainConfig().IsRIP7560(header.Number) {
-	//	return 0, fmt.Errorf("cannot estimate gas for RIP-7560 tx on pre-bedrock block %v", header.Number)
-	//}
+	if !s.b.ChainConfig().IsRIP7560(header.Number) {
+		return nil, fmt.Errorf("cannot estimate gas for RIP-7560 tx on pre-bedrock block %v", header.Number)
+	}
 
 	return DoEstimateRip7560TransactionGas(ctx, s.b, args, bNrOrHash, overrides, s.b.RPCGasCap())
 }

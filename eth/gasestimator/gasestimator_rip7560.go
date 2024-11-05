@@ -57,11 +57,10 @@ func executeRip7560Validation(ctx context.Context, tx *types.Transaction, opts *
 func EstimateRip7560Validation(ctx context.Context, tx *types.Transaction, opts *Options, gasCap uint64) (uint64, error) {
 	// Binary search the gas limit, as it may need to be higher than the amount used
 	st := tx.Rip7560TransactionData()
-	totalGasLimit, err := st.TotalGasLimit()
+	gasLimit, err := st.TotalGasLimit()
 	if err != nil {
 		return 0, err
 	}
-	gasLimit := totalGasLimit - st.PostOpGas
 	var (
 		lo uint64 // lowest-known gas limit where tx execution fails
 		hi uint64 // lowest-known gas limit where tx execution succeeds
