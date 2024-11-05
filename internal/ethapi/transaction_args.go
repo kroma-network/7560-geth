@@ -475,7 +475,7 @@ func (args *TransactionArgs) Call7560Defaults(globalGasCap uint64, baseFee *big.
 	if args.NonceKey == nil {
 		args.NonceKey = new(hexutil.Big)
 	}
-	if args.ValidationGas == nil {
+	if args.ValidationGas == nil || *args.ValidationGas == hexutil.Uint64(0) {
 		gas := globalGasCap
 		if gas == 0 {
 			gas = uint64(math.MaxUint64 / 2)
